@@ -25,12 +25,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 
+import hashlib
 import json
 import logging
 import os
 import requests
 import re
 import sys
+from urllib.parse import urlparse, urljoin
 
 from collections import deque
 
@@ -45,71 +47,82 @@ class Grabber(object):
             "do not visit those again"
 
             self.session = requests.Session()
+            "use a persistant session"
 
             self.config = {}
-            "Holds the configuration, typically loaded from a json file."
-
-    def filename_from_url(self, url):
-        match = re.search("[^/]+$", url)
-        if match:
-            return match.group()
-        return None
+            """Holds the configuration as loaded from
+            a json file, command line or defaults."""
 
     def process_found_url(self, url):
+        """
+        Check whether the url should be followed or downloaded.
+        If so, add it to the queue or safe the file.
+        """
+
         if url in self.visited_urls:
+            logging.debug("already visited: %s", url)
             return
         self.visited_urls.add(url)
 
         logging.debug("processing %s", url)
 
-        for reg in self.config["follow"]:
+        may_follow = True
+        for reg in self.config["no_follow"]:
             if re.match(reg, url):
-                self.url_follow_queue.append(url)
+                logging.debug("will NOT follow: %s (matches %s)", url, reg)
+                may_follow = False
+                break
+
+        if may_follow:
+            for reg in self.config["follow"]:
+                if re.match(reg, url):
+                    self.url_follow_queue.append(url)
+                    logging.debug("will follow: %s (matches %s)", url, reg)
+                    break
 
         for reg in self.config["download"]:
             if re.match(reg, url):
+                filename = os.path.basename(urlparse(url).path)
+                # os might have filename length restrictions
+                if len(filename) > 64:
+                    name, ext = os.path.splitext(filename)
+                    filename = hashlib.md5(name.encode()).hexdigest() + ext
+                out_path = self.config["target"] + "/" + filename
+                if os.path.isfile(out_path):
+                    logging.warning("File %s exists. Skipping.", filename)
+                    return
+
                 logging.info("Downloading %s", url)
                 result = self.session.get(url)
                 if not result.ok:
-                    logging.error("Error fetching file.")
-                    continue
-                filename = self.filename_from_url(result.url)
-                if not filename:
-                    logging.error("Can not determine filename from %s",
-                                  result.url)
+                    logging.error("Error fetching file %s.", url)
                     return
-                if len(filename) > 64:
-                    filename = filename[-64:]
-                with open(self.config["target"] + "/" + filename,
-                          'wb') as out_file:
+
+                with open(out_path, 'wb') as out_file:
                     out_file.write(result.content)
 
     def visit_next_url(self):
+        """
+        Pop the next url, retrieve it and scan the content for further links.
+        """
+
         url = self.url_follow_queue.popleft()
         r = self.session.get(url)
 
         # find more urls
-        for m in re.finditer(r"""(https?://[^\s<>]+)|href=['"]([^"']+)""",
-                             r.text):
+        for m in re.finditer(
+                r"""(https?://[^\s<>]+)|href=['"]([^"']+)|src=['"]([^"']+)""",
+                r.text):
             for g in m.groups():
                 if g:
                     logging.debug("raw link %s", g)
-                    if re.match("https?://.*", g):
-                        new_url = g
-                    elif g[:2] == "//":
-                        new_url = "http:" + g
-                    else:
-                        new_url = url
-                        remove_trail_match = re.match("(.*)/[^/]*$", url)
-                        if remove_trail_match:
-                            new_url = remove_trail_match.group(1)
-                            
-                        if new_url[-1:] == "/":
-                            new_url = new_url[:-1]
-                        if not g[:1] == "/":
-                            new_url += "/"
-                        new_url += g
+                    new_url = urljoin(url, g)
                     logging.debug("corrected link %s", new_url)
+                    if urlparse(new_url).netloc != urlparse(url).netloc:
+                        logging.debug("netloc change")
+                        if not self.config["allow_netloc_change"]:
+                            logging.debug("not following to different netloc")
+                            continue
                     self.process_found_url(new_url)
 
 
@@ -117,16 +130,6 @@ def main():
     """The main function gets a list of all mailing lists on the given
     server and performs (an) action(s) on all lists.
 
-    url_follow_queue = deque()
-    "pool of urls to visit next"
-
-    visited_urls = set()
-    "do not visit those again"
-
-    session = requests.Session()
-
-    config = {}
-    "Holds the configuration, typically loaded from a json file."
     """
     import argparse
 
@@ -138,14 +141,15 @@ def main():
     }
 
     parser = argparse.ArgumentParser(
-        description="Perform some action on all lists " +
-        "at a given mailman site.",
+        description="wget like website mirroring.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
     parser.add_argument(
         "-u",
         "--url",
         nargs="*",
         help="Url(s) to start the traversal.")
+
     parser.add_argument(
         "-d",
         "--download",
@@ -158,12 +162,25 @@ def main():
         nargs="*",
         help="regex(s) for urls to follow.",
         default=[r".*\.html", r".*/"])
+    parser.add_argument(
+        "-n",
+        "--no-follow",
+        nargs="*",
+        help="regex(s) for urls to NOT follow (takes precedence over follow).",
+        default=[r".*\.jpg"])
 
     parser.add_argument(
         "-t",
         "--target",
         help="The directory to hold the resulting files.",
         default="fetched/")
+
+    parser.add_argument(
+        "-a",
+        "--allow-netloc-change",
+        help="If given (or set to True in config file) follow links" +
+        " to network locations different from the starting url.",
+        action='store_true')
 
     parser.add_argument(
         "-l",
@@ -202,18 +219,15 @@ def main():
     else:
         logging.info("url: '%s'", grabber.config["url"])
 
-    if not grabber.config.get("download", None):
-        grabber.config["download"] = args.download
+    for arg, val in vars(args).items():
+        if not grabber.config.get(arg, None):
+            grabber.config[arg] = val
 
-    if not grabber.config.get("follow", None):
-        grabber.config["follow"] = args.follow
-
-    if not grabber.config.get("target", None):
-        grabber.config["target"] = args.target
-
+    # ensure that the target does not contain a trailing slash
     if grabber.config["target"][-1:] == "/":
         grabber.config["target"] = grabber.config["target"][:-1]
 
+    # convert to abs path and mkdir
     grabber.config["target"] = os.path.abspath(grabber.config["target"])
     if not os.path.isdir(grabber.config["target"]):
         os.mkdir(grabber.config["target"])
@@ -221,11 +235,21 @@ def main():
     grabber.url_follow_queue = deque(grabber.config["url"])
     logging.info("Starting link tree traversal at %s",
                  grabber.url_follow_queue)
+
+    print("\nPress ctrl+c to stop.\n")
+
     # main loop
     while grabber.url_follow_queue:
-        grabber.visit_next_url()
+        try:
+            grabber.visit_next_url()
+        except requests.exceptions.ConnectionError as ex:
+            logging.error("Connection error: %s", ex)
 
 
 # goto main
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nStopped")
+        exit(0)
