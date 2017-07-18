@@ -88,9 +88,10 @@ class Grabber(object):
                     name, ext = os.path.splitext(filename)
                     filename = hashlib.md5(name.encode()).hexdigest() + ext
                 out_path = self.config["target"] + "/" + filename
-                if os.path.isfile(out_path):
-                    logging.warning("File %s exists. Skipping.", filename)
-                    return
+                for directory in self.config["ignore_duplicates_in"]:
+                    if os.path.isfile(directory + "/" + filename):
+                        logging.warning("File %s exists. Skipping.", filename)
+                        return
 
                 logging.info("Downloading %s", url)
                 result = self.session.get(url)
@@ -156,12 +157,21 @@ def main():
         nargs="*",
         help="regex(s) for files to download.",
         default=[r".*\.jpg"])
+    
     parser.add_argument(
         "-f",
         "--follow",
         nargs="*",
         help="regex(s) for urls to follow.",
         default=[r".*\.html", r".*/"])
+
+    parser.add_argument(
+        "-i",
+        "--ignore-duplicates-in",
+        nargs="*",
+        help="If a file with the same name exists in one of these folders, skip it..",
+        default=["fetched/"])
+
     parser.add_argument(
         "-n",
         "--no-follow",
@@ -226,6 +236,9 @@ def main():
     # ensure that the target does not contain a trailing slash
     if grabber.config["target"][-1:] == "/":
         grabber.config["target"] = grabber.config["target"][:-1]
+
+    if grabber.config["target"] not in grabber.config["ignore_duplicates_in"]:
+        grabber.config["ignore_duplicates_in"].append(grabber.config["target"])
 
     # convert to abs path and mkdir
     grabber.config["target"] = os.path.abspath(grabber.config["target"])
