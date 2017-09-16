@@ -1,0 +1,17 @@
+{
+    "download": [
+	".*\\.jpg"
+    ],
+    "follow": [
+	".*view-image.php.*"
+    ],
+    "url": [
+	"http://www.publicdomainpictures.net/top-images.php"
+    ],
+    "target": "unsorted",
+    "ignore_duplicates_in": [
+	"ham",
+	"spam",
+	"unsorted"
+    ]
+}

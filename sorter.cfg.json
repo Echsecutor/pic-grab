@@ -1,0 +1,13 @@
+{
+    "src": "unsorted/",
+    "ext": ".jpg",
+    "key_bindings":
+    {
+	"n": "NEXT",
+	"b": "NEXT -1",
+	"q": "QUIT",
+	"111": "MOVE ham",
+	"116": "MOVE spam"
+	
+    }
+}

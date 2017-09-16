@@ -83,6 +83,7 @@ class Grabber(object):
         for reg in self.config["download"]:
             if re.match(reg, url):
                 filename = os.path.basename(urlparse(url).path)
+                logging.debug("url %s eligible for download (matches %s)", url, reg)
                 # os might have filename length restrictions
                 if len(filename) > 64:
                     name, ext = os.path.splitext(filename)
