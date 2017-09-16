@@ -157,7 +157,7 @@ def main():
         nargs="*",
         help="regex(s) for files to download.",
         default=[r".*\.jpg"])
-    
+
     parser.add_argument(
         "-f",
         "--follow",
