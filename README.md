@@ -3,11 +3,11 @@ Got bored from training your neural networks on recognising cats?
 With these small python scripts you can quickly gather a sample of pictures and then manually sort them into categories.
 
 ## Grabber
-To gether a sample of pictures from some website, run the pic grabber like
+To gather a sample of pictures from some website, run the pic grabber like
 ```
 python3 main.py -h
 ```
-for a usage help. It is recommended to use a config file like so
+for a usage help. It is recommended to use a configuration file like so
 ```
 python3 main.py -c grabber.cfg.json
 ```
@@ -21,7 +21,7 @@ After you got some pictures, you may sort them using
 ```
 python3 sorter.py sorter.cfg.json
 ```
-See the example config file for sensible options and key bindings. The esc key will always get you out of the sorter. ;)
+See the example configuration file for sensible options (and key bindings in operation). The `esc` key will always get you out of the sorter. ;)
 
 
 

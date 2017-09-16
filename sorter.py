@@ -1,6 +1,5 @@
 """Display pictures from a folder and sort them into other folders by
-pressing keys. The config file needs to specify the source dir and a
-dict with { key_1: target_dir_1, key_2: target_dir_2, ...}.
+pressing keys. 
 
 .. module:: sorter
 

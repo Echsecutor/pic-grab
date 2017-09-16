@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """This is a small command line utility to grab pictures from a web
-gui to view them locally. Which links to follow and what to download
-can be configured using regular expressions.
+site/gui to view them locally. Which links to follow and what to
+download can be configured using regular expressions.
 
 .. module:: pic-grab
 
