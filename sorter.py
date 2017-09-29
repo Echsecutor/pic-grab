@@ -1,5 +1,5 @@
 """Display pictures from a folder and sort them into other folders by
-pressing keys. 
+pressing keys.
 
 .. module:: sorter
 
@@ -33,10 +33,11 @@ from PIL import Image, ImageTk
 
 class Controller(object):
 
-    def __init__(self, root, view, config):
+    def __init__(self, root, view, key_bindings, image_files):
         self.root = root
         self.view = view
-        self.config = config
+        self.key_bindings = key_bindings
+        self.image_files = image_files
         self.image_list = []
         self.current_image_index = -1
 
@@ -45,9 +46,11 @@ class Controller(object):
         by key events.
 
         Supported Actions:
-        QUIT      exit program
-        RELOAD    reload image list from src
-        NEXT [n]  go to (n=1)th next image. ( use n < 0 to go back)
+        QUIT       exit program
+        RELOAD     reload image list from src
+        NEXT [n]   go to (n=1)th next image. ( use n < 0 to go back)
+        MOVE [TO]  mv pic to folder TO
+        DEL        delete pic
         """
 
         if action == "QUIT":
@@ -56,7 +59,10 @@ class Controller(object):
         if action == "RELOAD":
             self.load_images_from_src()
             return
-        
+        if action == "DEL":
+            self.delete_current_image()
+            return
+
         match = re.match(r"NEXT\s*(-?[0-9]+)?", action)
         if match:
             n = 1
@@ -72,6 +78,12 @@ class Controller(object):
 
         raise Exception("Unknown action: '{}'".format(action))
 
+    def delete_current_image(self):
+        cur_img_path = self.image_list[self.current_image_index]
+        del self.image_list[self.current_image_index]
+        os.remove(cur_img_path)
+        self.show_next_img(0)
+
     def move_current_image_to(self, target_folder):
         if target_folder[:-1] != "/":
             target_folder += "/"
@@ -84,16 +96,14 @@ class Controller(object):
         self.show_next_img(0)
 
     def load_images_from_src(self):
-        if self.config["src"][:-1] != "/":
-            self.config["src"] += "/"
+        if isinstance(self.image_files, str):
+            self.image_files = [self.image_files, ]
+        for glob_for in self.image_files:
+            self.image_list += glob.glob(glob_for)
 
-        glob_for = self.config["src"] \
-                   + "*" \
-                   + self.config["ext"]
-
-        self.image_list = glob.glob(glob_for)
         if not self.image_list:
-            raise Exception("No images in '{}'".format(glob_for))
+            raise Exception("No images found in '{}'".format(self.image_files))
+        self.image_list.sort()
         self.current_image_index = 0
 
     def show_next_img(self, index_change=1):
@@ -114,10 +124,10 @@ class Controller(object):
         key_char = event.char
         print ('keycode {} (char {})'.format(key_code, key_char))
 
-        if key_code in self.config["key_bindings"].keys():
-            self.__perform_action(self.config["key_bindings"][key_code])
-        elif key_char in self.config["key_bindings"].keys():
-            self.__perform_action(self.config["key_bindings"][key_char])
+        if key_code in self.key_bindings.keys():
+            self.__perform_action(self.key_bindings[key_code])
+        elif key_char in self.key_bindings.keys():
+            self.__perform_action(self.key_bindings[key_char])
         else:
             print("No action assigned to key.")
             # TODO: ask user -> assign action
@@ -153,49 +163,60 @@ def init_config():
     not given. Return config dictionary.
 
     """
-    config = {}
-    if len(sys.argv) > 1:
-        cfg_file_path = sys.argv[1]
-        if not os.path.isfile(cfg_file_path):
-            print("The only allowed command line argument is"
-                  + " a config.json file.")
-            exit(1)
-        with open(cfg_file_path) as cfg_file:
-            config = json.load(cfg_file)
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Image viewer with configurable key bindings"
+        + " for the elementary operations (move/delete).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    if "src" not in config.keys():
-        config["src"] = "./"
-    if "key_bindings" not in config.keys():
-        config["key_bindings"] = {}
-    if "ext" not in config.keys():
-        config["ext"] = ".jpg"
+    parser.add_argument(
+        "-c",
+        "--config",
+        help="Read config with keybindings from JSON file.",
+        default="sorter.cfg.json")
 
-    for key, val in config["key_bindings"].copy().items():
+    parser.add_argument(
+        "image_files",
+        nargs="*",
+        help="Glob or List of image files to work on.",
+        default="*.jpg")
+
+    args = parser.parse_args()
+
+    key_bindings = {}
+    cfg_file_path = args.config
+    if not os.path.isfile(cfg_file_path):
+        print("Config file not found.")
+        exit(1)
+    with open(cfg_file_path) as cfg_file:
+        key_bindings = json.load(cfg_file)
+
+    for key, val in key_bindings.copy().items():
         try:
             # convert integer keys to int
             print("trying to cenvert {} -> {}".format(key, val))
-            config["key_bindings"][int(key)] = val
+            key_bindings[int(key)] = val
             print("converted")
         except:
             pass
 
     # key_code 9 = esc -> quit
-    config["key_bindings"][9] = "QUIT"
+    key_bindings[9] = "QUIT"
 
-    if "r" not in config["key_bindings"].keys():
-        config["key_bindings"]["r"] = "RELOAD"
+    if "r" not in key_bindings.keys():
+        key_bindings["r"] = "RELOAD"
 
-    return config
+    return key_bindings, args.image_files
 
 
 def main():
 
-    config = init_config()
+    key_bindings, image_files = init_config()
 
     # init tk view/control
     root = tk.Tk()
     view = ImgView(root)
-    ctrl = Controller(root, view, config)
+    ctrl = Controller(root, view, key_bindings, image_files)
     view.register_key_listener(lambda e: ctrl.handle_key(e))
     ctrl.load_images_from_src()
 
