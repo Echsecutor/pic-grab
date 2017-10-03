@@ -22,13 +22,15 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-import re
+import exifread
 import glob
 import json
+import logging
 import os
-import sys
-import tkinter as tk
 from PIL import Image, ImageTk
+import re
+from shutil import copyfile
+import tkinter as tk
 
 
 class Controller(object):
@@ -50,10 +52,12 @@ class Controller(object):
         RELOAD     reload image list from src
         NEXT [n]   go to (n=1)th next image. ( use n < 0 to go back)
         MOVE [TO]  mv pic to folder TO
+        COPY [TO]  cp pic to folde TO
         DEL        delete pic
         """
 
         if action == "QUIT":
+            logging.critical("Goodbye!")
             self.root.quit()
             return
         if action == "RELOAD":
@@ -76,23 +80,41 @@ class Controller(object):
             self.move_current_image_to(match.group(1))
             return
 
+        match = re.match(r"COPY\s*([^\s].*)", action)
+        if match:
+            self.copy_current_image_to(match.group(1))
+            return
+
+
         raise Exception("Unknown action: '{}'".format(action))
 
     def delete_current_image(self):
         cur_img_path = self.image_list[self.current_image_index]
         del self.image_list[self.current_image_index]
         os.remove(cur_img_path)
+        logging.info("'{}' deleted".format(cur_img_path))
         self.show_next_img(0)
 
-    def move_current_image_to(self, target_folder):
+    def get_target_file_name(self, target_folder):
         if target_folder[:-1] != "/":
             target_folder += "/"
         cur_img_path = self.image_list[self.current_image_index]
         filename = os.path.basename(cur_img_path)
         target = target_folder + filename
-        print("Moving '{}' to '{}'".format(cur_img_path, target))
+        logging.info("'{}' to '{}'".format(cur_img_path, target))
+        return cur_img_path, target
+
+    def move_current_image_to(self, target_folder):
+        logging.info("Moving", end=" ")
+        cur_img_path, target = self.get_target_file_name(target_folder)
         os.rename(cur_img_path, target)
         del self.image_list[self.current_image_index]
+        self.show_next_img(0)
+
+    def copy_current_image_to(self, target_folder):
+        logging.info("Copying", end=" ")
+        cur_img_path, target = self.get_target_file_name(target_folder)
+        copyfile(cur_img_path, target)
         self.show_next_img(0)
 
     def load_images_from_src(self):
@@ -116,20 +138,20 @@ class Controller(object):
 
         new_img_path = self.image_list[self.current_image_index]
         self.view.show_img(new_img_path)
-        print("Showing img {} '{}'".format(self.current_image_index, new_img_path))
+        logging.info("Showing img {} '{}'".format(self.current_image_index, new_img_path))
 
     def handle_key(self, event):
 
         key_code = event.keycode
         key_char = event.char
-        print ('keycode {} (char {})'.format(key_code, key_char))
+        logging.debug('keycode {} (char {})'.format(key_code, key_char))
 
         if key_code in self.key_bindings.keys():
             self.__perform_action(self.key_bindings[key_code])
         elif key_char in self.key_bindings.keys():
             self.__perform_action(self.key_bindings[key_char])
         else:
-            print("No action assigned to key.")
+            logging.warning("No action assigned to key.")
             # TODO: ask user -> assign action
 
 
@@ -146,13 +168,42 @@ class ImgView(object):
 
         self.image_path = ""
 
+    def _read_img_and_correct_exif_orientation(path):
+        im = Image.open(path)
+        tags = {}
+        with open(path, 'rb') as f:
+            tags = exifread.process_file(f, details=False)
+        if "Image Orientation" in tags.keys():
+            orientation = tags["Image Orientation"]
+            logging.debug("Orientation: %s (%s)", orientation, orientation.values)
+            val = orientation.values
+            if 5 in val:
+                val += [4,8]
+            if 7 in val:
+                val += [4, 6]
+            if 3 in val:
+                logging.debug("Rotating by 180 degrees.")
+                im = im.transpose(Image.ROTATE_180)
+            if 4 in val:
+                logging.debug("Mirroring horizontally.")
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+            if 6 in val:
+                logging.debug("Rotating by 270 degrees.")
+                im = im.transpose(Image.ROTATE_270)
+            if 8 in val:
+                logging.debug("Rotating by 90 degrees.")
+                im = im.transpose(Image.ROTATE_90)
+
+        return im
+
     def show_img(self, path):
-            im = Image.open(path)
-            im.thumbnail((self.root.winfo_width(), self.root.winfo_height()), Image.ANTIALIAS)
-            tkimage = ImageTk.PhotoImage(im)
-            self.label.configure(image=tkimage)
-            self.label.image = tkimage
-            self.image_path = path
+        im = ImgView._read_img_and_correct_exif_orientation(path)
+        im.thumbnail((self.root.winfo_width(),
+                      self.root.winfo_height()), Image.ANTIALIAS)
+        tkimage = ImageTk.PhotoImage(im)
+        self.label.configure(image=tkimage)
+        self.label.image = tkimage
+        self.image_path = path
 
     def register_key_listener(self, key_listener):
         self.frame.bind("<Key>", key_listener)
@@ -186,7 +237,7 @@ def init_config():
     key_bindings = {}
     cfg_file_path = args.config
     if not os.path.isfile(cfg_file_path):
-        print("Config file not found.")
+        logging.critical("Config file not found.")
         exit(1)
     with open(cfg_file_path) as cfg_file:
         key_bindings = json.load(cfg_file)
@@ -194,9 +245,9 @@ def init_config():
     for key, val in key_bindings.copy().items():
         try:
             # convert integer keys to int
-            print("trying to cenvert {} -> {}".format(key, val))
+            logging.debug("trying to convert {} -> {}".format(key, val))
             key_bindings[int(key)] = val
-            print("converted")
+            logging.debug("converted")
         except:
             pass
 
@@ -210,6 +261,8 @@ def init_config():
 
 
 def main():
+
+    logging.basicConfig(level=logging.DEBUG)
 
     key_bindings, image_files = init_config()
 
@@ -228,5 +281,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\nStopped")
+        logging.critical("\n\nStopped")
         exit(0)
