@@ -13,5 +13,6 @@
 	"ham",
 	"spam",
 	"unsorted"
-    ]
+    ],
+    "visited_file": "grabber.cfg.json.visited"
 }

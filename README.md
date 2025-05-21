@@ -27,6 +27,7 @@ to see all available command-line options:
 - `-a, --allow-netloc-change`: Allow following links to different network locations
 - `-l, --log`: Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 - `-c, --config`: Load settings from a JSON configuration file
+- `--visited-file`: File to store visited URLs (defaults to config filename + '.visited')
 
 It is recommended to use a configuration file like:
 ```
@@ -41,7 +42,8 @@ See the included `grabber.cfg.json` for an example configuration:
     "follow": [".*view-image.php.*"],
     "url": ["http://www.publicdomainpictures.net/top-images.php"],
     "target": "unsorted",
-    "ignore_duplicates_in": ["ham", "spam", "unsorted"]
+    "ignore_duplicates_in": ["ham", "spam", "unsorted"],
+    "visited_file": "grabber.cfg.json.visited"
 }
 ```
 

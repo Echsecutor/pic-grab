@@ -52,6 +52,29 @@ class Grabber(object):
             self.config = {}
             """Holds the configuration as loaded from
             a json file, command line or defaults."""
+            
+            self.visited_file = None
+            "Path to the file storing visited URLs"
+
+    def load_visited_urls(self):
+        """Load the set of visited URLs from a file if it exists."""
+        if self.visited_file and os.path.isfile(self.visited_file):
+            try:
+                with open(self.visited_file, 'r') as f:
+                    self.visited_urls = set(json.load(f))
+                logging.info("Loaded %d visited URLs from %s", len(self.visited_urls), self.visited_file)
+            except Exception as e:
+                logging.error("Error loading visited URLs from %s: %s", self.visited_file, e)
+                
+    def save_visited_urls(self):
+        """Save the set of visited URLs to a file."""
+        if self.visited_file:
+            try:
+                with open(self.visited_file, 'w') as f:
+                    json.dump(list(self.visited_urls), f)
+                logging.info("Saved %d visited URLs to %s", len(self.visited_urls), self.visited_file)
+            except Exception as e:
+                logging.error("Error saving visited URLs to %s: %s", self.visited_file, e)
 
     def process_found_url(self, url):
         """
@@ -128,19 +151,9 @@ class Grabber(object):
                     self.process_found_url(new_url)
 
 
-def main():
-    """The main function gets a list of all mailing lists on the given
-    server and performs (an) action(s) on all lists.
-
-    """
+def parse_arguments():
+    """Parse command line arguments and return both the parser and parsed args."""
     import argparse
-
-    logger_config = {
-        "level":
-        logging.INFO,
-        "format":
-        "%(asctime)s %(funcName)s (%(lineno)d) [%(levelname)s]:    %(message)s"
-    }
 
     parser = argparse.ArgumentParser(
         description="wget like website mirroring.",
@@ -206,8 +219,28 @@ def main():
         help="Read config from JSON file."
         + " For the url, the command line takes precedence."
         + " For all other arguments, the config file wins.")
+        
+    parser.add_argument(
+        "--visited-file",
+        help="File to store visited URLs. Defaults to config filename + '.visited'.")
 
     args = parser.parse_args()
+    return parser, args
+
+
+def main():
+    """The main function gets a list of all mailing lists on the given
+    server and performs (an) action(s) on all lists.
+
+    """
+    logger_config = {
+        "level":
+        logging.INFO,
+        "format":
+        "%(asctime)s %(funcName)s (%(lineno)d) [%(levelname)s]:    %(message)s"
+    }
+
+    parser, args = parse_arguments()
 
     logger_config["level"] = getattr(logging, args.log)
     logging.basicConfig(**logger_config)
@@ -219,6 +252,10 @@ def main():
     if args.config:
         with open(args.config, "r") as config_file:
             grabber.config = json.load(config_file)
+            
+        # Set default visited file based on config filename if not specified
+        if not grabber.config.get("visited_file", None) and not args.visited_file:
+            grabber.config["visited_file"] = args.config + ".visited"
 
     if args.url:
         grabber.config["url"] = args.url
@@ -246,6 +283,12 @@ def main():
     if not os.path.isdir(grabber.config["target"]):
         os.mkdir(grabber.config["target"])
 
+    # Set visited file path
+    grabber.visited_file = grabber.config.get("visited_file", None)
+    
+    # Load existing visited URLs
+    grabber.load_visited_urls()
+
     grabber.url_follow_queue = deque(grabber.config["url"])
     logging.info("Starting link tree traversal at %s",
                  grabber.url_follow_queue)
@@ -261,6 +304,9 @@ def main():
             logging.error("Connection error: %s", connection_error)
             
     logging.info("Finished downloading all images successfully!")
+    
+    # Save visited URLs
+    grabber.save_visited_urls()
 
 
 # goto main
@@ -269,4 +315,7 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\nStopped")
+        # Save visited URLs on keyboard interrupt
+        if 'grabber' in locals():
+            grabber.save_visited_urls()
         exit(0)
