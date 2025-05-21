@@ -6,7 +6,7 @@ pressing keys.
 .. moduleauthor:: Sebastian Schmittner <sebastian@schmittner.pw>
 
 
-Copyright 2017 Sebastian Schmittner
+Copyright 2017-2025 Sebastian Schmittner
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -98,6 +98,8 @@ class Controller(object):
     def get_target_file_name(self, target_folder):
         if target_folder[:-1] != "/":
             target_folder += "/"
+        # Create the target directory if it doesn't exist
+        os.makedirs(target_folder, exist_ok=True)
         cur_img_path = self.image_list[self.current_image_index]
         filename = os.path.basename(cur_img_path)
         target = target_folder + filename
@@ -105,22 +107,26 @@ class Controller(object):
         return cur_img_path, target
 
     def move_current_image_to(self, target_folder):
-        logging.info("Moving", end=" ")
+        logging.info("Moving")
         cur_img_path, target = self.get_target_file_name(target_folder)
         os.rename(cur_img_path, target)
         del self.image_list[self.current_image_index]
         self.show_next_img(0)
 
     def copy_current_image_to(self, target_folder):
-        logging.info("Copying", end=" ")
+        logging.info("Copying")
         cur_img_path, target = self.get_target_file_name(target_folder)
         copyfile(cur_img_path, target)
         self.show_next_img(0)
 
     def load_images_from_src(self):
+        if not self.image_files:
+            raise Exception("No image files given.")
         if isinstance(self.image_files, str):
             self.image_files = [self.image_files, ]
         for glob_for in self.image_files:
+            if glob_for.endswith('/'):
+                glob_for += '*'
             self.image_list += glob.glob(glob_for)
 
         if not self.image_list:
@@ -199,7 +205,7 @@ class ImgView(object):
     def show_img(self, path):
         im = ImgView._read_img_and_correct_exif_orientation(path)
         im.thumbnail((self.root.winfo_width(),
-                      self.root.winfo_height()), Image.ANTIALIAS)
+                      self.root.winfo_height()), Image.Resampling.LANCZOS)
         tkimage = ImageTk.PhotoImage(im)
         self.label.configure(image=tkimage)
         self.label.image = tkimage
@@ -265,9 +271,16 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
 
     key_bindings, image_files = init_config()
+    
+    # Log all keybindings
+    logging.info("Configured keybindings:")
+    for key, action in key_bindings.items():
+        logging.info(f"Key: {key} -> Action: {action}")
 
     # init tk view/control
     root = tk.Tk()
+    # Set minimum window size
+    root.minsize(800, 600)
     view = ImgView(root)
     ctrl = Controller(root, view, key_bindings, image_files)
     view.register_key_listener(lambda e: ctrl.handle_key(e))

@@ -67,41 +67,41 @@ class Grabber(object):
         logging.debug("processing %s", url)
 
         may_follow = True
-        for reg in self.config["no_follow"]:
-            if re.match(reg, url):
-                logging.debug("will NOT follow: %s (matches %s)", url, reg)
+        for regex_pattern in self.config["no_follow"]:
+            if re.match(regex_pattern, url):
+                logging.debug("will NOT follow: %s (matches %s)", url, regex_pattern)
                 may_follow = False
                 break
 
         if may_follow:
-            for reg in self.config["follow"]:
-                if re.match(reg, url):
+            for regex_pattern in self.config["follow"]:
+                if re.match(regex_pattern, url):
                     self.url_follow_queue.append(url)
-                    logging.debug("will follow: %s (matches %s)", url, reg)
+                    logging.debug("will follow: %s (matches %s)", url, regex_pattern)
                     break
 
-        for reg in self.config["download"]:
-            if re.match(reg, url):
+        for regex_pattern in self.config["download"]:
+            if re.match(regex_pattern, url):
                 filename = os.path.basename(urlparse(url).path)
-                logging.debug("url %s eligible for download (matches %s)", url, reg)
+                logging.debug("url %s eligible for download (matches %s)", url, regex_pattern)
                 # os might have filename length restrictions
                 if len(filename) > 64:
-                    name, ext = os.path.splitext(filename)
-                    filename = hashlib.md5(name.encode()).hexdigest() + ext
-                out_path = self.config["target"] + "/" + filename
+                    name, extension = os.path.splitext(filename)
+                    filename = hashlib.md5(name.encode()).hexdigest() + extension
+                output_path = self.config["target"] + "/" + filename
                 for directory in self.config["ignore_duplicates_in"]:
                     if os.path.isfile(directory + "/" + filename):
                         logging.warning("File %s exists. Skipping.", filename)
                         return
 
                 logging.info("Downloading %s", url)
-                result = self.session.get(url)
-                if not result.ok:
+                response = self.session.get(url)
+                if not response.ok:
                     logging.error("Error fetching file %s.", url)
                     return
 
-                with open(out_path, 'wb') as out_file:
-                    out_file.write(result.content)
+                with open(output_path, 'wb') as output_file:
+                    output_file.write(response.content)
 
     def visit_next_url(self):
         """
@@ -109,16 +109,16 @@ class Grabber(object):
         """
 
         url = self.url_follow_queue.popleft()
-        r = self.session.get(url)
+        response = self.session.get(url)
 
         # find more urls
-        for m in re.finditer(
+        for match in re.finditer(
                 r"""(https?://[^\s<>]+)|href=['"]([^"']+)|src=['"]([^"']+)""",
-                r.text):
-            for g in m.groups():
-                if g:
-                    logging.debug("raw link %s", g)
-                    new_url = urljoin(url, g)
+                response.text):
+            for group in match.groups():
+                if group:
+                    logging.debug("raw link %s", group)
+                    new_url = urljoin(url, group)
                     logging.debug("corrected link %s", new_url)
                     if urlparse(new_url).netloc != urlparse(url).netloc:
                         logging.debug("netloc change")
@@ -135,7 +135,7 @@ def main():
     """
     import argparse
 
-    logger_cfg = {
+    logger_config = {
         "level":
         logging.INFO,
         "format":
@@ -209,16 +209,16 @@ def main():
 
     args = parser.parse_args()
 
-    logger_cfg["level"] = getattr(logging, args.log)
-    logging.basicConfig(**logger_cfg)
+    logger_config["level"] = getattr(logging, args.log)
+    logging.basicConfig(**logger_config)
 
-    print("Log messages above level: {}".format(logger_cfg["level"]))
+    print("Log messages above level: {}".format(logger_config["level"]))
 
     grabber = Grabber()
 
     if args.config:
-        with open(args.config, "r") as cfg_file:
-            grabber.config = json.load(cfg_file)
+        with open(args.config, "r") as config_file:
+            grabber.config = json.load(config_file)
 
     if args.url:
         grabber.config["url"] = args.url
@@ -230,9 +230,9 @@ def main():
     else:
         logging.info("url: '%s'", grabber.config["url"])
 
-    for arg, val in vars(args).items():
-        if not grabber.config.get(arg, None):
-            grabber.config[arg] = val
+    for arg_name, arg_value in vars(args).items():
+        if not grabber.config.get(arg_name, None):
+            grabber.config[arg_name] = arg_value
 
     # ensure that the target does not contain a trailing slash
     if grabber.config["target"][-1:] == "/":
@@ -255,9 +255,12 @@ def main():
     # main loop
     while grabber.url_follow_queue:
         try:
+            logging.info("Queue length: %d URLs remaining", len(grabber.url_follow_queue))
             grabber.visit_next_url()
-        except requests.exceptions.ConnectionError as ex:
-            logging.error("Connection error: %s", ex)
+        except requests.exceptions.ConnectionError as connection_error:
+            logging.error("Connection error: %s", connection_error)
+            
+    logging.info("Finished downloading all images successfully!")
 
 
 # goto main
