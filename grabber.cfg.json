@@ -14,5 +14,6 @@
 	"spam",
 	"unsorted"
     ],
-    "visited_file": "grabber.cfg.json.visited"
+    "visited_file": "grabber.cfg.json.visited",
+    "save_frequency": 100
 }

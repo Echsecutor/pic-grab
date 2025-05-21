@@ -28,6 +28,7 @@ to see all available command-line options:
 - `-l, --log`: Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 - `-c, --config`: Load settings from a JSON configuration file
 - `--visited-file`: File to store visited URLs (defaults to config filename + '.visited')
+- `--save-frequency`: How often to save visited URLs during execution (default: 100)
 
 It is recommended to use a configuration file like:
 ```
@@ -43,7 +44,8 @@ See the included `grabber.cfg.json` for an example configuration:
     "url": ["http://www.publicdomainpictures.net/top-images.php"],
     "target": "unsorted",
     "ignore_duplicates_in": ["ham", "spam", "unsorted"],
-    "visited_file": "grabber.cfg.json.visited"
+    "visited_file": "grabber.cfg.json.visited",
+    "save_frequency": 100
 }
 ```
 

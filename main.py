@@ -32,6 +32,8 @@ import os
 import requests
 import re
 import sys
+import time
+import random
 from urllib.parse import urlparse, urljoin
 
 from collections import deque
@@ -55,6 +57,9 @@ class Grabber(object):
             
             self.visited_file = None
             "Path to the file storing visited URLs"
+            
+            self.queue_file = None
+            "Path to the file storing URL queue"
 
     def load_visited_urls(self):
         """Load the set of visited URLs from a file if it exists."""
@@ -75,6 +80,26 @@ class Grabber(object):
                 logging.info("Saved %d visited URLs to %s", len(self.visited_urls), self.visited_file)
             except Exception as e:
                 logging.error("Error saving visited URLs to %s: %s", self.visited_file, e)
+                
+    def load_url_queue(self):
+        """Load the URL queue from a file if it exists."""
+        if self.queue_file and os.path.isfile(self.queue_file):
+            try:
+                with open(self.queue_file, 'r') as f:
+                    self.url_follow_queue = deque(json.load(f))
+                logging.info("Loaded %d queued URLs from %s", len(self.url_follow_queue), self.queue_file)
+            except Exception as e:
+                logging.error("Error loading URL queue from %s: %s", self.queue_file, e)
+                
+    def save_url_queue(self):
+        """Save the URL queue to a file."""
+        if self.queue_file:
+            try:
+                with open(self.queue_file, 'w') as f:
+                    json.dump(list(self.url_follow_queue), f)
+                logging.info("Saved %d queued URLs to %s", len(self.url_follow_queue), self.queue_file)
+            except Exception as e:
+                logging.error("Error saving URL queue to %s: %s", self.queue_file, e)
 
     def process_found_url(self, url):
         """
@@ -120,7 +145,7 @@ class Grabber(object):
                 logging.info("Downloading %s", url)
                 response = self.session.get(url)
                 if not response.ok:
-                    logging.error("Error fetching file %s.", url)
+                    logging.error("Error fetching file %s. Status code: %d", url, response.status_code)
                     return
 
                 with open(output_path, 'wb') as output_file:
@@ -132,11 +157,20 @@ class Grabber(object):
         """
 
         url = self.url_follow_queue.popleft()
+        
         response = self.session.get(url)
+        if response.status_code == 503:
+            logging.info("Received 503 Service Unavailable for %s. Retrying after delay...", url)
+            time.sleep(random.uniform(0.1, 0.5))  # Wait 100-500ms
+            response = self.session.get(url)  # Retry once
+        
+        if not response.ok:
+            logging.error("Error fetching URL %s. Status code: %d", url, response.status_code)
+            return
 
         # find more urls
         for match in re.finditer(
-                r"""(https?://[^\s<>]+)|href=['"]([^"']+)|src=['"]([^"']+)""",
+                r"""(https?://[^\s<>'"]+)|href=['"]([^"']+)|src=['"]([^"']+)""",
                 response.text):
             for group in match.groups():
                 if group:
@@ -223,6 +257,16 @@ def parse_arguments():
     parser.add_argument(
         "--visited-file",
         help="File to store visited URLs. Defaults to config filename + '.visited'.")
+        
+    parser.add_argument(
+        "--queue-file",
+        help="File to store URL queue. Defaults to config filename + '.queue'.")
+
+    parser.add_argument(
+        "--save-frequency",
+        type=int,
+        help="How often to save visited URLs and queue (number of URLs processed). Default is 100.",
+        default=100)
 
     args = parser.parse_args()
     return parser, args
@@ -256,6 +300,10 @@ def main():
         # Set default visited file based on config filename if not specified
         if not grabber.config.get("visited_file", None) and not args.visited_file:
             grabber.config["visited_file"] = args.config + ".visited"
+            
+        # Set default queue file based on config filename if not specified
+        if not grabber.config.get("queue_file", None) and not args.queue_file:
+            grabber.config["queue_file"] = args.config + ".queue"
 
     if args.url:
         grabber.config["url"] = args.url
@@ -286,27 +334,46 @@ def main():
     # Set visited file path
     grabber.visited_file = grabber.config.get("visited_file", None)
     
+    # Set queue file path
+    grabber.queue_file = grabber.config.get("queue_file", None)
+    
     # Load existing visited URLs
     grabber.load_visited_urls()
+    
+    # Load existing URL queue
+    grabber.load_url_queue()
 
-    grabber.url_follow_queue = deque(grabber.config["url"])
-    logging.info("Starting link tree traversal at %s",
-                 grabber.url_follow_queue)
+    # Only initialize the queue if it's empty (no saved queue was loaded)
+    if not grabber.url_follow_queue:
+        grabber.url_follow_queue = deque(grabber.config["url"])
+        logging.info("Starting link tree traversal at %s", grabber.url_follow_queue)
+    else:
+        logging.info("Resuming link tree traversal with %d queued URLs", len(grabber.url_follow_queue))
 
     print("\nPress ctrl+c to stop.\n")
 
     # main loop
+    urls_processed_since_save = 0
     while grabber.url_follow_queue:
         try:
             logging.info("Queue length: %d URLs remaining", len(grabber.url_follow_queue))
             grabber.visit_next_url()
+            urls_processed_since_save += 1
+            
+            # Save visited URLs and queue periodically
+            if grabber.config.get("save_frequency", 100) > 0 and urls_processed_since_save >= grabber.config.get("save_frequency", 100):
+                grabber.save_visited_urls()
+                grabber.save_url_queue()
+                urls_processed_since_save = 0
+                
         except requests.exceptions.ConnectionError as connection_error:
             logging.error("Connection error: %s", connection_error)
             
     logging.info("Finished downloading all images successfully!")
     
-    # Save visited URLs
+    # Save visited URLs and queue
     grabber.save_visited_urls()
+    grabber.save_url_queue()
 
 
 # goto main
@@ -315,7 +382,8 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\nStopped")
-        # Save visited URLs on keyboard interrupt
+        # Save visited URLs and queue on keyboard interrupt
         if 'grabber' in locals():
             grabber.save_visited_urls()
+            grabber.save_url_queue()
         exit(0)

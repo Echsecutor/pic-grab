@@ -104,4 +104,5 @@ unsorted/
 spam/
 
 *.myconfig.json
-
+*.visited
+*.queue

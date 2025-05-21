@@ -2,22 +2,23 @@
 
 ## Main Components
 
-- `main.py` - Main application script for the pic-grab utility, contains the Grabber class and command-line interface
-- `sorter.py` - Script for sorting images that have been downloaded
+- `main.py` - Main application script with the Grabber class that handles URL crawling and image downloading
+- `sorter.py` - Script for sorting downloaded images
 
 ## Configuration Files
 
-- `grabber.cfg.json` - Configuration for the pic grabber
+- `grabber.cfg.json` - Configuration for the URL crawler
 - `sorter.cfg.json` - Configuration for the image sorter
-- `konanchan.myconfig.json` - Example/specific configuration for a particular site
+- `konanchan.myconfig.json` - Sample configuration file for a specific website
 
-## Directories
+## Storage Directories
 
-- `ham/` - Directory for sorted "wanted" images
-- `spam/` - Directory for sorted "unwanted" images
-- `unsorted/` - Directory for images that have not been sorted yet
-- `fetched/` - Default download directory (implied from code)
+- `ham/` - Directory for sorted "good" images
+- `spam/` - Directory for sorted "bad" images 
+- `unsorted/` - Directory for images waiting to be sorted
 
-## Dependencies
+## Project Files
 
-- Dependencies are defined in `requirements.txt` 
+- `requirements.txt` - Python dependencies
+- `LICENSE` - Project license information
+- `README.md` - Project documentation 
